@@ -20,49 +20,55 @@
 
 package com.dawsonsystems.session;
 
+import java.util.logging.Logger;
+
 import org.apache.catalina.Manager;
 import org.apache.catalina.session.StandardSession;
 
-import java.util.logging.Logger;
-
 public class MongoSession extends StandardSession {
-  private static Logger log = Logger.getLogger("MongoManager");
-  private boolean isValid = true;
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 4364215696815910704L;
 
-  public MongoSession(Manager manager) {
-    super(manager);
-  }
+	private static Logger log = Logger.getLogger("MongoManager");
 
-  @Override
-  protected boolean isValidInternal() {
-    return isValid;
-  }
+	private boolean isValid = true;
 
-  @Override
-  public boolean isValid() {
-    return isValidInternal();
-  }
+	public MongoSession(Manager manager) {
+		super(manager);
+	}
 
-  @Override
-  public void setValid(boolean isValid) {
-    this.isValid = isValid;
-    if (!isValid) {
-      String keys[] = keys();
-      for (String key : keys) {
-        removeAttributeInternal(key, false);
-      }
-      getManager().remove(this);
+	@Override
+	protected boolean isValidInternal() {
+		return isValid;
+	}
 
-    }
-  }
+	@Override
+	public boolean isValid() {
+		return isValidInternal();
+	}
 
-  @Override
-  public void invalidate() {
-    setValid(false);
-  }
+	@Override
+	public void setValid(boolean isValid) {
+		this.isValid = isValid;
+		if (!isValid) {
+			String keys[] = keys();
+			for (String key : keys) {
+				removeAttributeInternal(key, false);
+			}
+			getManager().remove(this);
 
-  @Override
-  public void setId(String id) {
-    this.id = id;
-  }
+		}
+	}
+
+	@Override
+	public void invalidate() {
+		setValid(false);
+	}
+
+	@Override
+	public void setId(String id) {
+		this.id = id;
+	}
 }
