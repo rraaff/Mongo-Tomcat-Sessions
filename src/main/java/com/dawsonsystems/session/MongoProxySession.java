@@ -77,8 +77,8 @@ public class MongoProxySession extends StandardSession {
 			if (!this.isProxy) {
 				return;
 			}
-			this.isProxy = false;
 			((MongoManager) getManager()).loadFromDb(this.id, this);
+			this.isProxy = false;
 		} catch (IOException e) {
 			log.log(Level.SEVERE, "Unable to unproxy", e);
 		} catch (ClassNotFoundException e) {
