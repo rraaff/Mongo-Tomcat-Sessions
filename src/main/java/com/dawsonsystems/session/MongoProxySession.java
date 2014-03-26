@@ -48,7 +48,9 @@ public class MongoProxySession extends StandardSession {
 
 	private boolean isValid = true;
 
-	private boolean isProxy = true;
+	private transient boolean isProxy = true;
+	
+	private transient boolean readingFromDB = false;
 
 	public boolean isProxy() {
 		return isProxy;
@@ -73,11 +75,17 @@ public class MongoProxySession extends StandardSession {
 	}
 
 	private void unproxy() {
+		
 		try {
+			if (readingFromDB) {
+				return;
+			}
 			if (!this.isProxy) {
 				return;
 			}
+			readingFromDB = true;
 			((MongoManager) getManager()).loadFromDb(this.id, this);
+			readingFromDB = false;
 			this.isProxy = false;
 		} catch (IOException e) {
 			log.log(Level.SEVERE, "Unable to unproxy", e);
