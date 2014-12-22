@@ -33,6 +33,7 @@ import org.apache.catalina.Container;
 import org.apache.catalina.Lifecycle;
 import org.apache.catalina.LifecycleException;
 import org.apache.catalina.LifecycleListener;
+import org.apache.catalina.LifecycleState;
 import org.apache.catalina.Loader;
 import org.apache.catalina.Manager;
 import org.apache.catalina.Session;
@@ -56,6 +57,8 @@ public class MongoManager implements Manager, Lifecycle {
 	protected Mongo mongo;
 	protected DB db;
 	protected boolean slaveOk;
+	
+	private LifecycleState state = LifecycleState.NEW;
 
 	protected static String useProxySessions = "false";
 
@@ -114,15 +117,6 @@ public class MongoManager implements Manager, Lifecycle {
 
 	}
 
-	@Override
-	public int getSessionCounter() {
-		return 10000000;
-	}
-
-	@Override
-	public void setSessionCounter(int i) {
-
-	}
 
 	@Override
 	public int getMaxActive() {
@@ -139,15 +133,6 @@ public class MongoManager implements Manager, Lifecycle {
 		return 1000000;
 	}
 
-	@Override
-	public int getExpiredSessions() {
-		return 0;
-	}
-
-	@Override
-	public void setExpiredSessions(int i) {
-
-	}
 
 	public int getRejectedSessions() {
 		return 0;
@@ -181,11 +166,6 @@ public class MongoManager implements Manager, Lifecycle {
 	@Override
 	public int getSessionAverageAliveTime() {
 		return 0;
-	}
-
-	@Override
-	public void setSessionAverageAliveTime(int i) {
-
 	}
 
 	public void load() throws ClassNotFoundException, IOException {
@@ -316,8 +296,11 @@ public class MongoManager implements Manager, Lifecycle {
 		initDbConnection();
 	}
 
+	@Override
 	public void stop() throws LifecycleException {
+		state = LifecycleState.STOPPING;
 		mongo.close();
+		state = LifecycleState.STOPPED;
 	}
 
 	public Session findSession(String id) throws IOException {
@@ -513,6 +496,13 @@ public class MongoManager implements Manager, Lifecycle {
 			currentSession.remove();
 		}
 	}
+	
+	
+	
+	@Override
+	public void remove(Session arg0, boolean arg1) {
+		remove(arg0);
+	}
 
 	@Override
 	public void removePropertyChangeListener(
@@ -597,5 +587,49 @@ public class MongoManager implements Manager, Lifecycle {
 
 	public void setUseProxySessions(String useProxySessions) {
 		MongoManager.useProxySessions = useProxySessions;
+	}
+
+	@Override
+	public void init() throws LifecycleException {}
+
+	@Override
+	public void destroy() throws LifecycleException {}
+
+	@Override
+	public LifecycleState getState() {
+		return state;
+	}
+
+	@Override
+	public String getStateName() {
+		return state.toString();
+	}
+
+	@Override
+	public long getSessionCounter() {
+		return 10000000;
+	}
+
+	@Override
+	public void setSessionCounter(long sessionCounter) {
+	}
+
+	@Override
+	public long getExpiredSessions() {
+		return 0;
+	}
+
+	@Override
+	public void setExpiredSessions(long expiredSessions) {
+	}
+
+	@Override
+	public int getSessionCreateRate() {
+		return 0;
+	}
+
+	@Override
+	public int getSessionExpireRate() {
+		return 0;
 	}
 }
