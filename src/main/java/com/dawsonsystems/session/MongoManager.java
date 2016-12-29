@@ -52,6 +52,7 @@ import com.mongodb.WriteResult;
 public class MongoManager implements Manager, Lifecycle {
 	private static Logger log = Logger.getLogger("MongoManager");
 	protected static String host = "localhost";
+	protected static String suffix = "";
 	protected static int port = 27017;
 	protected static String database = "sessions";
 	protected Mongo mongo;
@@ -63,6 +64,10 @@ public class MongoManager implements Manager, Lifecycle {
 	protected static String useProxySessions = "false";
 
 	private MongoSessionTrackerValve trackerValve;
+	
+	private ThreadLocal<String> currentPath = new ThreadLocal<String>();
+	
+	private ThreadLocal<String> currentSessionPath = new ThreadLocal<String>();
 	private ThreadLocal<StandardSession> currentSession = new ThreadLocal<StandardSession>();
 	private Serializer serializer;
 
@@ -71,6 +76,38 @@ public class MongoManager implements Manager, Lifecycle {
 
 	private Container container;
 	private int maxInactiveInterval;
+	
+	protected void setCurrentPath(String path) {
+		currentPath.set(path);
+	}
+	
+	protected String getCurrentPath() {
+		String result = currentPath.get();
+		if (result == null || result.length() == 0){
+			result = "";
+		}
+		return result;
+	}
+	
+	public void clearCurrentPath() {
+		currentPath.remove();
+	}
+	
+	protected void setCurrentSessionPath(String path) {
+		currentSessionPath.set(path);
+	}
+	
+	protected String getCurrentSessionPath() {
+		String result = currentSessionPath.get();
+		if (result == null || result.length() == 0){
+			result = "";
+		}
+		return result;
+	}
+	
+	public void clearCurrentSessionPath() {
+		currentSessionPath.remove();
+	}
 
 	@Override
 	public Container getContainer() {
@@ -134,6 +171,7 @@ public class MongoManager implements Manager, Lifecycle {
 	}
 
 
+	@Override
 	public int getRejectedSessions() {
 		return 0;
 	}
@@ -168,9 +206,11 @@ public class MongoManager implements Manager, Lifecycle {
 		return 0;
 	}
 
+	@Override
 	public void load() throws ClassNotFoundException, IOException {
 	}
 
+	@Override
 	public void unload() throws IOException {
 	}
 
@@ -179,15 +219,18 @@ public class MongoManager implements Manager, Lifecycle {
 		processExpires();
 	}
 
+	@Override
 	public void addLifecycleListener(LifecycleListener lifecycleListener) {
 	}
 
+	@Override
 	public LifecycleListener[] findLifecycleListeners() {
 		return new LifecycleListener[0]; // To change body of implemented
 											// methods use File | Settings |
 											// File Templates.
 	}
 
+	@Override
 	public void removeLifecycleListener(LifecycleListener lifecycleListener) {
 	}
 
@@ -220,11 +263,16 @@ public class MongoManager implements Manager, Lifecycle {
 		session.setValid(true);
 		session.setCreationTime(System.currentTimeMillis());
 		session.setNew(true);
-		currentSession.set(session);
+		setCurrentSessionThreadLocal(session);
 		if (log.isLoggable(Level.FINE)) {
 			log.fine("Created new empty session " + session.getIdInternal());
 		}
 		return session;
+	}
+
+	private void setCurrentSessionThreadLocal(StandardSession session) {
+		currentSession.set(session);
+		currentSessionPath.set(getCurrentPath());
 	}
 
 	/**
@@ -234,6 +282,7 @@ public class MongoManager implements Manager, Lifecycle {
 		return createEmptySession();
 	}
 
+	@Override
 	public org.apache.catalina.Session createSession(java.lang.String sessionId) {
 		StandardSession session = (StandardSession) createEmptySession();
 		if (log.isLoggable(Level.FINE)) {
@@ -247,6 +296,7 @@ public class MongoManager implements Manager, Lifecycle {
 		return session;
 	}
 
+	@Override
 	public org.apache.catalina.Session[] findSessions() {
 		try {
 			List<Session> sessions = new ArrayList<Session>();
@@ -266,6 +316,7 @@ public class MongoManager implements Manager, Lifecycle {
 		return (StandardSession) createEmptySession();
 	}
 
+	@Override
 	public void start() throws LifecycleException {
 		for (Valve valve : getContainer().getPipeline().getValves()) {
 			if (valve instanceof MongoSessionTrackerValve) {
@@ -303,6 +354,7 @@ public class MongoManager implements Manager, Lifecycle {
 		state = LifecycleState.STOPPED;
 	}
 
+	@Override
 	public Session findSession(String id) throws IOException {
 		return loadSession(id);
 	}
@@ -373,7 +425,7 @@ public class MongoManager implements Manager, Lifecycle {
 		StandardSession session = currentSession.get();
 
 		if (session != null) {
-			if (id.equals(session.getId())) {
+			if (id.equals(session.getId()) && getCurrentPath().equals(currentSessionPath.get())) {
 				return session;
 			} else {
 				currentSession.remove();
@@ -382,7 +434,7 @@ public class MongoManager implements Manager, Lifecycle {
 		if (isUsingProxySessions()) {
 			session = (StandardSession) createEmptySession();
 			session.setId(id);
-			currentSession.set(session);
+			setCurrentSessionThreadLocal(session);
 			return session;
 		} else {
 			try {
@@ -400,7 +452,7 @@ public class MongoManager implements Manager, Lifecycle {
 			log.fine("Loading session " + id + " from Mongo");
 		}
 		BasicDBObject query = new BasicDBObject();
-		query.put("_id", id);
+		query.put("_id", getMongoSessionKey(id));
 
 		DBObject dbsession = getCollection().findOne(query);
 
@@ -410,7 +462,7 @@ public class MongoManager implements Manager, Lifecycle {
 			}
 			StandardSession ret = getNewSession();
 			ret.setId(id);
-			currentSession.set(ret);
+			setCurrentSessionThreadLocal(ret);
 			return ret;
 		}
 
@@ -435,9 +487,22 @@ public class MongoManager implements Manager, Lifecycle {
 			log.fine("Loaded session id " + id);
 		}
 		if (!isUsingProxySessions()) {
-			currentSession.set(session);
+			setCurrentSessionThreadLocal(session);
 		}
 	    return session;
+	}
+
+	private Object getMongoSessionKey(String id) {
+		StringBuilder result = new StringBuilder(id);
+		String currentPath = getCurrentPath();
+		String suffix = getSuffix();
+		if (currentPath != null && !currentPath.equals("")) {
+			result.append("-").append(currentPath);
+		}
+		if (suffix != null && !suffix.equals("")) {
+			result.append("-").append(suffix);
+		}
+		return result.toString();
 	}
 
 	public void save(Session session) throws IOException {
@@ -459,12 +524,12 @@ public class MongoManager implements Manager, Lifecycle {
 			byte[] data = serializer.serializeFrom(standardsession);
 
 			BasicDBObject dbsession = new BasicDBObject();
-			dbsession.put("_id", standardsession.getId());
+			dbsession.put("_id", getMongoSessionKey(standardsession.getId()));
 			dbsession.put("data", data);
 			dbsession.put("lastmodified", System.currentTimeMillis());
 
 			BasicDBObject query = new BasicDBObject();
-			query.put("_id", standardsession.getIdInternal());
+			query.put("_id", getMongoSessionKey(standardsession.getIdInternal()));
 			getCollection().update(query, dbsession, true, false);
 			log.fine("Updated session with id " + session.getIdInternal());
 		} catch (IOException e) {
@@ -480,12 +545,13 @@ public class MongoManager implements Manager, Lifecycle {
 		}
 	}
 
+	@Override
 	public void remove(Session session) {
 		if (log.isLoggable(Level.FINE)) {
 			log.fine("Removing session ID : " + session.getId());
 		}
 		BasicDBObject query = new BasicDBObject();
-		query.put("_id", session.getId());
+		query.put("_id", getMongoSessionKey(session.getId()));
 
 		try {
 			getCollection().remove(query);
@@ -632,4 +698,13 @@ public class MongoManager implements Manager, Lifecycle {
 	public int getSessionExpireRate() {
 		return 0;
 	}
+
+	public static String getSuffix() {
+		return suffix;
+	}
+
+	public static void setSuffix(String suffix) {
+		MongoManager.suffix = suffix;
+	}
+
 }

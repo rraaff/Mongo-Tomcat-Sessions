@@ -2,5 +2,5 @@
 <Context>
     <WatchedResource>WEB-INF/web.xml</WatchedResource>
     <Valve className="com.dawsonsystems.session.MongoSessionTrackerValve" />
-    <Manager className="com.dawsonsystems.session.MongoManager" host="localhost" port="27017" database="sessions" maxInactiveInterval="84"/>   
+    <Manager className="com.dawsonsystems.session.MongoManager" host="localhost" port="27017" database="sessions" useProxySessions="true" suffix="local" maxInactiveInterval="80000"/>   
 </Context>

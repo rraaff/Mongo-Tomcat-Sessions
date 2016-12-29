@@ -238,7 +238,7 @@ public class MongoProxySession extends StandardSession {
 
 	@Override
 	public Object getNote(String name) {
-		unproxy();
+		//unproxy();
 		return super.getNote(name);
 	}
 
@@ -250,7 +250,7 @@ public class MongoProxySession extends StandardSession {
 
 	@Override
 	public Principal getPrincipal() {
-		unproxy();
+		//unproxy();
 		return super.getPrincipal();
 	}
 

@@ -42,11 +42,27 @@ public class MongoSessionTrackerValve extends ValveBase {
 	@Override
 	public void invoke(Request request, Response response) throws IOException,
 			ServletException {
+		
+		String path = getFirstPathSegment(request);
+		manager.setCurrentPath(path);
 		try {
 			getNext().invoke(request, response);
 		} finally {
 			storeSession(request, response);
+			manager.clearCurrentPath();
 		}
+	}
+
+	private String getFirstPathSegment(Request request) {
+		String url = request.getRequestURI();
+		if (url.startsWith("/")) {
+			url = url.substring(1);
+		}
+		int end = url.indexOf('/');
+		if (end > 0) {
+			url = url.substring(0, end);
+		}
+		return url;
 	}
 
 	private void storeSession(Request request, Response response)
