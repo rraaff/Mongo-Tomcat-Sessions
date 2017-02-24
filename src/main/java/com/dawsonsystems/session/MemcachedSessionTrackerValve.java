@@ -21,6 +21,7 @@
 package com.dawsonsystems.session;
 
 import java.io.IOException;
+import java.util.concurrent.ExecutionException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -31,11 +32,11 @@ import org.apache.catalina.connector.Request;
 import org.apache.catalina.connector.Response;
 import org.apache.catalina.valves.ValveBase;
 
-public class MongoSessionTrackerValve extends ValveBase {
-	private static Logger log = Logger.getLogger("MongoSessionValve");
-	private MongoManager manager;
+public class MemcachedSessionTrackerValve extends ValveBase {
+	private static Logger log = Logger.getLogger("MemcachedSessionValve");
+	private MemcachedManager manager;
 
-	public void setMongoManager(MongoManager manager) {
+	public void setMongoManager(MemcachedManager manager) {
 		this.manager = manager;
 	}
 
@@ -48,7 +49,11 @@ public class MongoSessionTrackerValve extends ValveBase {
 		try {
 			getNext().invoke(request, response);
 		} finally {
-			storeSession(request, response);
+			try {
+				storeSession(request, response);
+			} catch (ExecutionException e) {
+				log.fine("error saving to memcache" + e.getMessage());
+			}
 			manager.clearCurrentPath();
 		}
 	}
@@ -66,7 +71,7 @@ public class MongoSessionTrackerValve extends ValveBase {
 	}
 
 	private void storeSession(Request request, Response response)
-			throws IOException {
+			throws IOException, ExecutionException {
 		final Session session = request.getSessionInternal(false);
 
 		if (session != null) {
@@ -76,8 +81,8 @@ public class MongoSessionTrackerValve extends ValveBase {
 							+ session.getId());
 				}
 				if (session.getSession() != null) {
-					if (session instanceof MongoProxySession) {
-						if (((MongoProxySession) session).isProxy()) {
+					if (session instanceof MemcachedProxySession) {
+						if (((MemcachedProxySession) session).isProxy()) {
 							if (log.isLoggable(Level.FINE)) {
 								log.fine("HTTP Session is proxy, Not saving "
 									+ session.getId());

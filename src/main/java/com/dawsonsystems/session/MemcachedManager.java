@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -40,30 +41,25 @@ import org.apache.catalina.Session;
 import org.apache.catalina.Valve;
 import org.apache.catalina.session.StandardSession;
 
-import com.mongodb.BasicDBObject;
-import com.mongodb.DB;
-import com.mongodb.DBCollection;
-import com.mongodb.DBCursor;
-import com.mongodb.DBObject;
-import com.mongodb.Mongo;
-import com.mongodb.ServerAddress;
-import com.mongodb.WriteResult;
+import net.spy.memcached.AddrUtil;
+import net.spy.memcached.ConnectionFactoryBuilder;
+import net.spy.memcached.MemcachedClient;
+import net.spy.memcached.internal.OperationFuture;
 
-public class MongoManager implements Manager, Lifecycle {
-	private static Logger log = Logger.getLogger("MongoManager");
+public class MemcachedManager implements Manager, Lifecycle {
+	private static Logger log = Logger.getLogger("MemcachedManager");
 	protected static String host = "localhost";
 	protected static String suffix = "";
-	protected static int port = 27017;
-	protected static String database = "sessions";
-	protected Mongo mongo;
-	protected DB db;
+	protected static int port = 11211;
+	
+	private MemcachedClient memcachedClient;
 	protected boolean slaveOk;
 	
 	private LifecycleState state = LifecycleState.NEW;
 
 	protected static String useProxySessions = "false";
 
-	private MongoSessionTrackerValve trackerValve;
+	private MemcachedSessionTrackerValve trackerValve;
 	
 	private ThreadLocal<String> currentPath = new ThreadLocal<String>();
 	
@@ -75,6 +71,9 @@ public class MongoManager implements Manager, Lifecycle {
 	private String serializationStrategyClass = "com.dawsonsystems.session.JavaSerializer";
 
 	private Container container;
+	
+	// tiempo de duracion de los datos, en segundos
+	// 3600 = 1 hora
 	private int maxInactiveInterval;
 	
 	protected void setCurrentPath(String path) {
@@ -238,6 +237,8 @@ public class MongoManager implements Manager, Lifecycle {
 	public void add(Session session) {
 		try {
 			save(session);
+		} catch (ExecutionException ex) {
+			log.log(Level.SEVERE, "Error adding new session", ex);
 		} catch (IOException ex) {
 			log.log(Level.SEVERE, "Error adding new session", ex);
 		}
@@ -257,7 +258,7 @@ public class MongoManager implements Manager, Lifecycle {
 
 	@Override
 	public Session createEmptySession() {
-		StandardSession session = isUsingProxySessions() ? new MongoProxySession(this) : new MongoSession(this);
+		StandardSession session = isUsingProxySessions() ? new MemcachedProxySession(this) : new MemcachedSession(this);
 		session.setId(UUID.randomUUID().toString());
 		session.setMaxInactiveInterval(maxInactiveInterval);
 		session.setValid(true);
@@ -319,8 +320,8 @@ public class MongoManager implements Manager, Lifecycle {
 	@Override
 	public void start() throws LifecycleException {
 		for (Valve valve : getContainer().getPipeline().getValves()) {
-			if (valve instanceof MongoSessionTrackerValve) {
-				trackerValve = (MongoSessionTrackerValve) valve;
+			if (valve instanceof MemcachedSessionTrackerValve) {
+				trackerValve = (MemcachedSessionTrackerValve) valve;
 				trackerValve.setMongoManager(this);
 				if (log.isLoggable(Level.INFO)) {
 					log.info("Attached to Mongo Tracker Valve");
@@ -350,7 +351,7 @@ public class MongoManager implements Manager, Lifecycle {
 	@Override
 	public void stop() throws LifecycleException {
 		state = LifecycleState.STOPPING;
-		mongo.close();
+		memcachedClient.shutdown();
 		state = LifecycleState.STOPPED;
 	}
 
@@ -364,7 +365,7 @@ public class MongoManager implements Manager, Lifecycle {
 	}
 
 	public static void setHost(String host) {
-		MongoManager.host = host;
+		MemcachedManager.host = host;
 	}
 
 	public static int getPort() {
@@ -372,42 +373,19 @@ public class MongoManager implements Manager, Lifecycle {
 	}
 
 	public static void setPort(int port) {
-		MongoManager.port = port;
-	}
-
-	public static String getDatabase() {
-		return database;
-	}
-
-	public static void setDatabase(String database) {
-		MongoManager.database = database;
+		MemcachedManager.port = port;
 	}
 
 	public void clear() throws IOException {
-		getCollection().drop();
-		getCollection().ensureIndex(new BasicDBObject("lastmodified", 1));
-	}
-
-	private DBCollection getCollection() throws IOException {
-		return db.getCollection("sessions");
 	}
 
 	public int getSize() throws IOException {
-		return (int) getCollection().count();
+		return 1;
 	}
 
 	public String[] keys() throws IOException {
 
-		BasicDBObject restrict = new BasicDBObject();
-		restrict.put("_id", 1);
-
-		DBCursor cursor = getCollection().find(new BasicDBObject(), restrict);
-
 		List<String> ret = new ArrayList<String>();
-
-		while (cursor.hasNext()) {
-			ret.add(cursor.next().get("").toString());
-		}
 
 		return ret.toArray(new String[ret.size()]);
 	}
@@ -451,14 +429,12 @@ public class MongoManager implements Manager, Lifecycle {
 		if (log.isLoggable(Level.FINE)) {
 			log.fine("Loading session " + id + " from Mongo");
 		}
-		BasicDBObject query = new BasicDBObject();
-		query.put("_id", getMongoSessionKey(id));
 
-		DBObject dbsession = getCollection().findOne(query);
+		byte[] value = (byte[])memcachedClient.get(id);
 
-		if (dbsession == null) {
+		if (value == null) {
 			if (log.isLoggable(Level.FINE)) {
-				log.fine("Session " + id + " not found in Mongo");
+				log.fine("Session " + id + " not found in Memcached");
 			}
 			StandardSession ret = getNewSession();
 			ret.setId(id);
@@ -466,11 +442,9 @@ public class MongoManager implements Manager, Lifecycle {
 			return ret;
 		}
 
-		byte[] data = (byte[]) dbsession.get("data");
-
 		session.setId(id);
 		session.setManager(this);
-		serializer.deserializeInto(data, session);
+		serializer.deserializeInto(value, session);
 
 		session.setMaxInactiveInterval(-1);
 		session.access();
@@ -492,7 +466,7 @@ public class MongoManager implements Manager, Lifecycle {
 	    return session;
 	}
 
-	private Object getMongoSessionKey(String id) {
+	private String getMongoSessionKey(String id) {
 		StringBuilder result = new StringBuilder(id);
 		String currentPath = getCurrentPath();
 		String suffix = getSuffix();
@@ -505,7 +479,7 @@ public class MongoManager implements Manager, Lifecycle {
 		return result.toString();
 	}
 
-	public void save(Session session) throws IOException {
+	public void save(Session session) throws IOException, ExecutionException {
 		try {
 			if (log.isLoggable(Level.FINE)) {
 				log.fine("Saving session " + session + " into Mongo");
@@ -523,19 +497,13 @@ public class MongoManager implements Manager, Lifecycle {
 
 			byte[] data = serializer.serializeFrom(standardsession);
 
-			BasicDBObject dbsession = new BasicDBObject();
-			dbsession.put("_id", getMongoSessionKey(standardsession.getId()));
-			dbsession.put("data", data);
-			dbsession.put("lastmodified", System.currentTimeMillis());
+			OperationFuture<Boolean> set = memcachedClient.set(getMongoSessionKey(standardsession.getId()), getMaxInactiveInterval(), data);
+            Boolean result = set.get();
 
-			BasicDBObject query = new BasicDBObject();
-			query.put("_id", getMongoSessionKey(standardsession.getIdInternal()));
-			getCollection().update(query, dbsession, true, false);
-			log.fine("Updated session with id " + session.getIdInternal());
-		} catch (IOException e) {
+			log.fine("Updated session with id " + session.getIdInternal() + " result " + result);
+		} catch (InterruptedException e) {
 			log.severe(e.getMessage());
 			e.printStackTrace();
-			throw e;
 		} finally {
 			currentSession.remove();
 			if (log.isLoggable(Level.FINE)) {
@@ -550,12 +518,10 @@ public class MongoManager implements Manager, Lifecycle {
 		if (log.isLoggable(Level.FINE)) {
 			log.fine("Removing session ID : " + session.getId());
 		}
-		BasicDBObject query = new BasicDBObject();
-		query.put("_id", getMongoSessionKey(session.getId()));
 
 		try {
-			getCollection().remove(query);
-		} catch (IOException e) {
+			getMemcachedClient().delete(getMongoSessionKey(session.getId()));
+		} catch (Exception e) {
 			log.log(Level.SEVERE,
 					"Error removing session in Mongo Session Store", e);
 		} finally {
@@ -578,47 +544,19 @@ public class MongoManager implements Manager, Lifecycle {
 	}
 
 	public void processExpires() {
-		BasicDBObject query = new BasicDBObject();
-
-		long olderThan = System.currentTimeMillis()
-				- (getMaxInactiveInterval() * 1000);
-		if (log.isLoggable(Level.FINE)) {
-			log.fine("Looking for sessions less than for expiry in Mongo : "
-				+ olderThan);
-		}
-
-		query.put("lastmodified", new BasicDBObject("$lt", olderThan));
-
-		try {
-			WriteResult result = getCollection().remove(query);
-			if (log.isLoggable(Level.FINE)) {
-				log.fine("Expired sessions : " + result.getN());
-			}
-		} catch (IOException e) {
-			log.log(Level.SEVERE,
-					"Error cleaning session in Mongo Session Store", e);
-		}
+		
 	}
 
 	private void initDbConnection() throws LifecycleException {
 		try {
-			String[] hosts = getHost().split(",");
-
-			List<ServerAddress> addrs = new ArrayList<ServerAddress>();
-
-			for (String host : hosts) {
-				addrs.add(new ServerAddress(host, getPort()));
-			}
-			mongo = new Mongo(addrs);
-			db = mongo.getDB(getDatabase());
-			if (slaveOk) {
-				db.slaveOk();
-			}
-			getCollection().ensureIndex(new BasicDBObject("lastmodified", 1));
+			ConnectionFactoryBuilder connectionFactoryBuilder = new ConnectionFactoryBuilder();
+            memcachedClient = new MemcachedClient(
+                    connectionFactoryBuilder.build(),
+                    AddrUtil.getAddresses(getHost()+":"+getPort()));
 			if (log.isLoggable(Level.FINE)) {
-				log.info("Connected to Mongo " + host + "/" + database
-					+ " for session storage, slaveOk=" + slaveOk + ", "
-					+ (getMaxInactiveInterval() * 1000) + " session live time");
+				log.info("Connected to memcached " + host + "/"
+					+ " for session storage "
+					+ (getMaxInactiveInterval()) + " session live time");
 			}
 		} catch (IOException e) {
 			e.printStackTrace();
@@ -652,7 +590,7 @@ public class MongoManager implements Manager, Lifecycle {
 	}
 
 	public void setUseProxySessions(String useProxySessions) {
-		MongoManager.useProxySessions = useProxySessions;
+		MemcachedManager.useProxySessions = useProxySessions;
 	}
 
 	@Override
@@ -704,7 +642,15 @@ public class MongoManager implements Manager, Lifecycle {
 	}
 
 	public static void setSuffix(String suffix) {
-		MongoManager.suffix = suffix;
+		MemcachedManager.suffix = suffix;
+	}
+
+	public MemcachedClient getMemcachedClient() {
+		return memcachedClient;
+	}
+
+	public void setMemcachedClient(MemcachedClient memcachedClient) {
+		this.memcachedClient = memcachedClient;
 	}
 
 }

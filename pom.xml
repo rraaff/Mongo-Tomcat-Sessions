@@ -32,12 +32,7 @@
             <version>7.0.8</version>
             <type>jar</type>
             <scope>compile</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.mongodb</groupId>
-            <artifactId>mongo-java-driver</artifactId>
-            <version>${mongo-java-driver.version}</version>
-        </dependency>        
+        </dependency>   
         <dependency>
             <groupId>org.jmock</groupId>
             <artifactId>jmock-junit4</artifactId>
@@ -52,6 +47,11 @@
             <type>jar</type>
             <scope>compile</scope>
         </dependency>
+        <dependency>
+			<groupId>com.aws.elasticcache</groupId>
+			<artifactId>client</artifactId>
+			<version>0.0.1</version>
+		</dependency>
     </dependencies>
 
     <build>

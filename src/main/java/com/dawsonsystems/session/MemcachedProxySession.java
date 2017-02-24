@@ -38,13 +38,13 @@ import org.apache.catalina.Manager;
 import org.apache.catalina.SessionListener;
 import org.apache.catalina.session.StandardSession;
 
-public class MongoProxySession extends StandardSession {
+public class MemcachedProxySession extends StandardSession {
 
 	/**
 	 * 
 	 */
 	private static final long serialVersionUID = -674522109957698646L;
-	private static Logger log = Logger.getLogger("MongoManager");
+	private static Logger log = Logger.getLogger("MemcachedManager");
 
 	private boolean isValid = true;
 
@@ -60,7 +60,7 @@ public class MongoProxySession extends StandardSession {
 		this.isProxy = isProxy;
 	}
 
-	public MongoProxySession(Manager manager) {
+	public MemcachedProxySession(Manager manager) {
 		super(manager);
 	}
 
@@ -84,7 +84,7 @@ public class MongoProxySession extends StandardSession {
 				return;
 			}
 			readingFromDB = true;
-			((MongoManager) getManager()).loadFromDb(this.id, this);
+			((MemcachedManager) getManager()).loadFromDb(this.id, this);
 			readingFromDB = false;
 			this.isProxy = false;
 		} catch (IOException e) {

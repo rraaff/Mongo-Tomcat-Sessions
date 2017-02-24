@@ -25,17 +25,17 @@ import java.util.logging.Logger;
 import org.apache.catalina.Manager;
 import org.apache.catalina.session.StandardSession;
 
-public class MongoSession extends StandardSession {
+public class MemcachedSession extends StandardSession {
 	/**
 	 * 
 	 */
 	private static final long serialVersionUID = 4364215696815910704L;
 
-	private static Logger log = Logger.getLogger("MongoManager");
+	private static Logger log = Logger.getLogger("MemcachedManager");
 
 	private boolean isValid = true;
 
-	public MongoSession(Manager manager) {
+	public MemcachedSession(Manager manager) {
 		super(manager);
 	}
 
