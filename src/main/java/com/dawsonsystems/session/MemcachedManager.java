@@ -653,4 +653,10 @@ public class MemcachedManager implements Manager, Lifecycle {
 		this.memcachedClient = memcachedClient;
 	}
 
+	@Override
+	public boolean willAttributeDistribute(String arg0, Object arg1) {
+		// TODO Auto-generated method stub
+		return false;
+	}
+
 }
