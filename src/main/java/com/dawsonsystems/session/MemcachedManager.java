@@ -467,16 +467,17 @@ public class MemcachedManager implements Manager, Lifecycle {
 	}
 
 	private String getMongoSessionKey(String id) {
-		StringBuilder result = new StringBuilder(id);
-		String currentPath = getCurrentPath();
-		String suffix = getSuffix();
-		if (currentPath != null && !currentPath.equals("")) {
-			result.append("-").append(currentPath);
-		}
-		if (suffix != null && !suffix.equals("")) {
-			result.append("-").append(suffix);
-		}
-		return result.toString();
+//		StringBuilder result = new StringBuilder(id);
+//		String currentPath = getCurrentPath();
+//		String suffix = getSuffix();
+//		if (currentPath != null && !currentPath.equals("")) {
+//			result.append("-").append(currentPath);
+//		}
+//		if (suffix != null && !suffix.equals("")) {
+//			result.append("-").append(suffix);
+//		}
+//		return result.toString();
+		return id;
 	}
 
 	public void save(Session session) throws IOException, ExecutionException {
@@ -501,6 +502,7 @@ public class MemcachedManager implements Manager, Lifecycle {
             Boolean result = set.get();
 
 			log.fine("Updated session with id " + session.getIdInternal() + " result " + result);
+			System.out.println("Updated session with id " + session.getIdInternal() + " result " + result);
 		} catch (InterruptedException e) {
 			log.severe(e.getMessage());
 			e.printStackTrace();
@@ -656,7 +658,7 @@ public class MemcachedManager implements Manager, Lifecycle {
 	@Override
 	public boolean willAttributeDistribute(String arg0, Object arg1) {
 		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 }
