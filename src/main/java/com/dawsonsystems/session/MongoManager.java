@@ -707,4 +707,7 @@ public class MongoManager implements Manager, Lifecycle {
 		MongoManager.suffix = suffix;
 	}
 
+	public boolean willAttributeDistribute(String arg0, Object arg1) {
+		return true;
+	}
 }
