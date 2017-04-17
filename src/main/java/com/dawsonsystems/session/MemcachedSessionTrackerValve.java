@@ -26,6 +26,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.servlet.ServletException;
+import javax.servlet.http.Cookie;
 
 import org.apache.catalina.Session;
 import org.apache.catalina.connector.Request;
@@ -43,9 +44,8 @@ public class MemcachedSessionTrackerValve extends ValveBase {
 	@Override
 	public void invoke(Request request, Response response) throws IOException,
 			ServletException {
-		
 		String path = getFirstPathSegment(request);
-		manager.setCurrentPath(path);
+		manager.setCurrentRequest(request, response, path);
 		try {
 			getNext().invoke(request, response);
 		} finally {
@@ -54,7 +54,7 @@ public class MemcachedSessionTrackerValve extends ValveBase {
 			} catch (ExecutionException e) {
 				log.fine("error saving to memcache" + e.getMessage());
 			}
-			manager.clearCurrentPath();
+			manager.clearCurrentRequest();
 		}
 	}
 
@@ -72,9 +72,26 @@ public class MemcachedSessionTrackerValve extends ValveBase {
 
 	private void storeSession(Request request, Response response)
 			throws IOException, ExecutionException {
-		final Session session = request.getSessionInternal(false);
+		Session sessionFromReq = request.getSessionInternal(false);
+		Session session = manager.getCurrentSessionThreadLocal();
+		String initSessionId = MemcachedManager.getInitSessionId();
+		
+		if (sessionFromReq != null && session != null && initSessionId != null && !initSessionId.equals(session.getId())) {
+			Cookie c = getSessionCookie(request);
+			if (c != null) {
+				c.setValue(session.getId());
+				//response.addCookie(c);
+				//response.addSessionCookieInternal(c);
+				//response.setHeader("JSESSIONID", session.getId());
+			}
+		}
+		
+		for (String sessionId : MemcachedManager.getCurrentRequest().getInvalidatedSessionCookies()) {
+			manager.remove(sessionId);
+		}
 
 		if (session != null) {
+			
 			if (session.isValid()) {
 				if (log.isLoggable(Level.FINE)) {
 					log.fine("Request with session completed, saving session "
@@ -113,7 +130,27 @@ public class MemcachedSessionTrackerValve extends ValveBase {
 						+ session.getId());
 				}
 				manager.remove(session);
+				
+				request.getSession(true).invalidate();
+				request.setRequestedSessionId(null);
+				request.clearCookies();
+
+				  // step 3: create a new session and set it to the request
+				  Session newSession = request.getSessionInternal(true);
+				  request.setRequestedSessionId(newSession.getId());
+				  manager.add(session);
+				  manager.save(session);
+				
 			}
 		}
+	}
+
+	private Cookie getSessionCookie(Request req) {
+		for (Cookie c : req.getCookies()) {
+			if (c.getName().equals("JSESSIONID")) {
+				return c;
+			}
+		}
+		return null;
 	}
 }

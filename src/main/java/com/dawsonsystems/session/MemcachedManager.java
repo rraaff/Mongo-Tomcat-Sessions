@@ -30,6 +30,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.servlet.http.Cookie;
+import javax.servlet.http.HttpSession;
+
 import org.apache.catalina.Container;
 import org.apache.catalina.Lifecycle;
 import org.apache.catalina.LifecycleException;
@@ -39,9 +42,12 @@ import org.apache.catalina.Loader;
 import org.apache.catalina.Manager;
 import org.apache.catalina.Session;
 import org.apache.catalina.Valve;
+import org.apache.catalina.connector.Request;
+import org.apache.catalina.connector.Response;
 import org.apache.catalina.session.StandardSession;
 
 import net.spy.memcached.AddrUtil;
+import net.spy.memcached.ClientMode;
 import net.spy.memcached.ConnectionFactoryBuilder;
 import net.spy.memcached.MemcachedClient;
 import net.spy.memcached.internal.OperationFuture;
@@ -61,10 +67,9 @@ public class MemcachedManager implements Manager, Lifecycle {
 
 	private MemcachedSessionTrackerValve trackerValve;
 	
-	private ThreadLocal<String> currentPath = new ThreadLocal<String>();
+	private static ThreadLocal<RequestContext> currentRequest = new ThreadLocal<RequestContext>();
 	
-	private ThreadLocal<String> currentSessionPath = new ThreadLocal<String>();
-	private ThreadLocal<StandardSession> currentSession = new ThreadLocal<StandardSession>();
+	private static ThreadLocal<StandardSession> currentSession = new ThreadLocal<StandardSession>();
 	private Serializer serializer;
 
 	// Either 'kryo' or 'java'
@@ -76,38 +81,35 @@ public class MemcachedManager implements Manager, Lifecycle {
 	// 3600 = 1 hora
 	private int maxInactiveInterval;
 	
-	protected void setCurrentPath(String path) {
-		currentPath.set(path);
+	protected void setCurrentRequest(Request request, Response response, String path) {
+		RequestContext value = new RequestContext(request, response, path);
+		currentRequest.set(value);
+		HttpSession s = request.getSession(false);
+		if (s != null) {
+			value.setInitSessionId(s.getId());
+		} else {
+			value.setInitSessionId(null);
+		}
 	}
 	
 	protected String getCurrentPath() {
-		String result = currentPath.get();
-		if (result == null || result.length() == 0){
-			result = "";
-		}
+		return currentRequest.get().getCurrentPath();
+	}
+	
+	protected static RequestContext getCurrentRequest() {
+		RequestContext result = currentRequest.get();
 		return result;
 	}
 	
-	public void clearCurrentPath() {
-		currentPath.remove();
-	}
-	
-	protected void setCurrentSessionPath(String path) {
-		currentSessionPath.set(path);
-	}
-	
-	protected String getCurrentSessionPath() {
-		String result = currentSessionPath.get();
-		if (result == null || result.length() == 0){
-			result = "";
-		}
+	protected static String getInitSessionId() {
+		String result = currentRequest.get().getInitSessionId();
 		return result;
 	}
 	
-	public void clearCurrentSessionPath() {
-		currentSessionPath.remove();
+	public void clearCurrentRequest() {
+		currentRequest.remove();
 	}
-
+	
 	@Override
 	public Container getContainer() {
 		return container;
@@ -236,6 +238,7 @@ public class MemcachedManager implements Manager, Lifecycle {
 	@Override
 	public void add(Session session) {
 		try {
+			setCurrentSessionThreadLocal((StandardSession)session);
 			save(session);
 		} catch (ExecutionException ex) {
 			log.log(Level.SEVERE, "Error adding new session", ex);
@@ -258,8 +261,15 @@ public class MemcachedManager implements Manager, Lifecycle {
 
 	@Override
 	public Session createEmptySession() {
-		StandardSession session = isUsingProxySessions() ? new MemcachedProxySession(this) : new MemcachedSession(this);
-		session.setId(UUID.randomUUID().toString());
+		
+		StandardSession session;
+		if (getCurrentSessionThreadLocal() == null) {
+			session = isUsingProxySessions() ? new MemcachedProxySession(this) : new MemcachedSession(this);
+		} else {
+			session = getCurrentSessionThreadLocal();
+		}
+		String sessionId = UUID.randomUUID().toString();
+		session.setId(sessionId);
 		session.setMaxInactiveInterval(maxInactiveInterval);
 		session.setValid(true);
 		session.setCreationTime(System.currentTimeMillis());
@@ -270,10 +280,49 @@ public class MemcachedManager implements Manager, Lifecycle {
 		}
 		return session;
 	}
-
+	
+	public Session createEmptySession(String id) {
+		
+		StandardSession session;
+		if (getCurrentSessionThreadLocal() == null) {
+			session = isUsingProxySessions() ? new MemcachedProxySession(this) : new MemcachedSession(this);
+		} else {
+			session = getCurrentSessionThreadLocal();
+		}
+		String sessionId = id;
+		session.setId(sessionId);
+		session.setMaxInactiveInterval(maxInactiveInterval);
+		session.setValid(true);
+		session.setCreationTime(System.currentTimeMillis());
+		session.setNew(true);
+		setCurrentSessionThreadLocal(session);
+		getCurrentRequest().getRequest().setRequestedSessionId(sessionId);
+		if (log.isLoggable(Level.FINE)) {
+			log.fine("Created new empty session " + session.getIdInternal());
+		}
+		return session;
+	}
+	
+	private Session createMongoSession(String id) {
+		StandardSession session = isUsingProxySessions() ? new MemcachedProxySession(this) : new MemcachedSession(this);
+		session.setId(id);
+		session.setMaxInactiveInterval(maxInactiveInterval);
+		session.setValid(true);
+		session.setCreationTime(System.currentTimeMillis());
+		session.setNew(true);
+		setCurrentSessionThreadLocal(session);
+		if (log.isLoggable(Level.FINE)) {
+			log.fine("Created new empty session " + session.getIdInternal());
+		}
+		return session;
+	}
+	
+	protected static StandardSession getCurrentSessionThreadLocal() {
+		return currentSession.get();
+	}
+	
 	private void setCurrentSessionThreadLocal(StandardSession session) {
 		currentSession.set(session);
-		currentSessionPath.set(getCurrentPath());
 	}
 
 	/**
@@ -285,13 +334,17 @@ public class MemcachedManager implements Manager, Lifecycle {
 
 	@Override
 	public org.apache.catalina.Session createSession(java.lang.String sessionId) {
-		StandardSession session = (StandardSession) createEmptySession();
+		String createSessionId = sessionId;
+		if (createSessionId == null || createSessionId.trim().length() == 0) {
+			createSessionId = UUID.randomUUID().toString();
+		}
+		StandardSession session = (StandardSession) createMongoSession(createSessionId);
 		if (log.isLoggable(Level.FINE)) {
 			log.fine("Created session with id " + session.getIdInternal()
-					+ " ( " + sessionId + ")");
+					+ " ( " + createSessionId + ")");
 		}
-		if (sessionId != null) {
-			session.setId(sessionId);
+		if (createSessionId != null) {
+			session.setId(createSessionId);
 		}
 
 		return session;
@@ -309,12 +362,23 @@ public class MemcachedManager implements Manager, Lifecycle {
 			throw new RuntimeException(ex);
 		}
 	}
+	
+	protected org.apache.catalina.session.StandardSession getNewSession(String id) {
+		if (log.isLoggable(Level.FINE)) {
+			log.fine("getNewSession()");
+		}
+		//currentResponse.get().setHeader("JSESSIONID", string);
+		return (StandardSession) createEmptySession(id);
+	}
 
 	protected org.apache.catalina.session.StandardSession getNewSession() {
 		if (log.isLoggable(Level.FINE)) {
 			log.fine("getNewSession()");
 		}
-		return (StandardSession) createEmptySession();
+		String string = UUID.randomUUID().toString();
+		//currentResponse.get().setHeader("JSESSIONID", string);
+		currentRequest.get().getResponse().addCookie(new Cookie("JSESSIONID", string));
+		return (StandardSession) createEmptySession(string);
 	}
 
 	@Override
@@ -395,28 +459,38 @@ public class MemcachedManager implements Manager, Lifecycle {
 	}
 
 	public Session loadSession(String id) throws IOException {
-
 		if (id == null || id.length() == 0) {
 			return createEmptySession();
 		}
-
+		
 		StandardSession session = currentSession.get();
+		
+		if (getCurrentRequest() != null && getCurrentRequest().getInvalidatedSessionCookies().contains(id)) {
+			session = (StandardSession) createMongoSession(UUID.randomUUID().toString());
+			setCurrentSessionThreadLocal(session);
+			//Cookie c = new Cookie("JSESSIONID", id);
+			//getCurrentRequest().getResponse().addCookie(c);
+			//getCurrentRequest().getResponse().addSessionCookieInternal(c);
+			//getCurrentRequest().getResponse().setHeader("JSESSIONID", session.getId());
+			getCurrentRequest().getResponse().setHeader("Set-Cookie", "JSESSIONID=" +session.getId());
+			return session;
+		}
 
 		if (session != null) {
-			if (id.equals(session.getId()) && getCurrentPath().equals(currentSessionPath.get())) {
+			if (id.equals(session.getId())) {
 				return session;
 			} else {
 				currentSession.remove();
 			}
 		}
 		if (isUsingProxySessions()) {
-			session = (StandardSession) createEmptySession();
+			session = (StandardSession) createMongoSession(id);
 			session.setId(id);
 			setCurrentSessionThreadLocal(session);
 			return session;
 		} else {
 			try {
-				return loadFromDb(id, (StandardSession)createEmptySession());
+				return loadFromDb(id, (StandardSession)createMongoSession(id));
 		    } catch (ClassNotFoundException ex) {
 		      log.log(Level.SEVERE, "Unable to deserialize session ", ex);
 		      throw new IOException("Unable to deserializeInto session", ex);
@@ -426,6 +500,19 @@ public class MemcachedManager implements Manager, Lifecycle {
 
 	public StandardSession loadFromDb(String id, StandardSession session)
 			throws IOException, ClassNotFoundException {
+		if (getCurrentRequest().getInvalidatedSessionCookies().contains(id)) {
+			StandardSession ret = getNewSession();
+			String string = UUID.randomUUID().toString();
+			ret.setId(string);
+			setCurrentSessionThreadLocal(ret);
+//			Cookie c = new Cookie("JSESSIONID", id);
+//			getCurrentRequest().getResponse().addCookie(c);
+//			getCurrentRequest().getResponse().addSessionCookieInternal(c);
+			getCurrentRequest().getResponse().setHeader("Set-Cookie", "JSESSIONID=" +string);
+			
+			return ret;
+		}
+		
 		if (log.isLoggable(Level.FINE)) {
 			log.fine("Loading session " + id + " from Mongo");
 		}
@@ -436,15 +523,25 @@ public class MemcachedManager implements Manager, Lifecycle {
 			if (log.isLoggable(Level.FINE)) {
 				log.fine("Session " + id + " not found in Memcached");
 			}
+			StandardSession ret = getNewSession(id);
+			ret.setId(id);
+			setCurrentSessionThreadLocal(ret);
+			return ret;
+		}
+		
+
+		session.setId(id);
+		session.setManager(this);
+		serializer.deserializeInto(value, session);
+		if (!session.isValid()) {
+			if (log.isLoggable(Level.FINE)) {
+				log.fine("Session " + id + " is not valid");
+			}
 			StandardSession ret = getNewSession();
 			ret.setId(id);
 			setCurrentSessionThreadLocal(ret);
 			return ret;
 		}
-
-		session.setId(id);
-		session.setManager(this);
-		serializer.deserializeInto(value, session);
 
 		session.setMaxInactiveInterval(-1);
 		session.access();
@@ -502,7 +599,6 @@ public class MemcachedManager implements Manager, Lifecycle {
             Boolean result = set.get();
 
 			log.fine("Updated session with id " + session.getIdInternal() + " result " + result);
-			System.out.println("Updated session with id " + session.getIdInternal() + " result " + result);
 		} catch (InterruptedException e) {
 			log.severe(e.getMessage());
 			e.printStackTrace();
@@ -517,12 +613,17 @@ public class MemcachedManager implements Manager, Lifecycle {
 
 	@Override
 	public void remove(Session session) {
+		remove(session.getId());
+	}
+	
+	public void remove(String sessionId) {
 		if (log.isLoggable(Level.FINE)) {
-			log.fine("Removing session ID : " + session.getId());
+			log.fine("Removing session ID : " + sessionId);
 		}
-
 		try {
-			getMemcachedClient().delete(getMongoSessionKey(session.getId()));
+			OperationFuture<Boolean> remove = getMemcachedClient().delete(getMongoSessionKey(sessionId));
+			Boolean result = remove.get();
+			log.fine("Deleted session with id " + sessionId + " result " + result);
 		} catch (Exception e) {
 			log.log(Level.SEVERE,
 					"Error removing session in Mongo Session Store", e);
@@ -552,9 +653,11 @@ public class MemcachedManager implements Manager, Lifecycle {
 	private void initDbConnection() throws LifecycleException {
 		try {
 			ConnectionFactoryBuilder connectionFactoryBuilder = new ConnectionFactoryBuilder();
+			connectionFactoryBuilder.setClientMode(ClientMode.Static);
             memcachedClient = new MemcachedClient(
                     connectionFactoryBuilder.build(),
                     AddrUtil.getAddresses(getHost()+":"+getPort()));
+			
 			if (log.isLoggable(Level.FINE)) {
 				log.info("Connected to memcached " + host + "/"
 					+ " for session storage "

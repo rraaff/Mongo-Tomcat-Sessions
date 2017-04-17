@@ -97,20 +97,26 @@ public class MemcachedProxySession extends StandardSession {
 	@Override
 	public void setValid(boolean isValid) {
 		this.isValid = isValid;
-		if (!isValid) {
-			String keys[] = keys();
-			for (String key : keys) {
-				removeAttributeInternal(key, false);
-			}
-			getManager().remove(this);
-
-		}
+//		if (!isValid) {
+//			String keys[] = keys();
+//			for (String key : keys) {
+//				removeAttributeInternal(key, false);
+//			}
+//			getManager().remove(this);
+//
+//		}
 	}
 
 	@Override
 	public void invalidate() {
-		unproxy();
+//		unproxy();
+		MemcachedManager.getCurrentRequest().addInvalidatedSession(this.id);
 		setValid(false);
+		try {
+			super.invalidate();
+		} catch (Exception e) {
+			// TODO: handle exception
+		}
 	}
 
 	@Override
@@ -199,7 +205,7 @@ public class MemcachedProxySession extends StandardSession {
 
 	@Override
 	public String getId() {
-		return super.getId();
+		return this.id;
 	}
 
 	@Override

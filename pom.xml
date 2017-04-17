@@ -29,7 +29,7 @@
         <dependency>
             <groupId>org.apache.tomcat</groupId>
             <artifactId>tomcat-catalina</artifactId>
-            <version>7.0.8</version>
+            <version>7.0.75</version>
             <type>jar</type>
             <scope>compile</scope>
         </dependency>   
@@ -41,12 +41,11 @@
             <scope>compile</scope>
         </dependency>
         <dependency>
-            <groupId>tomcat</groupId>
-            <artifactId>tomcat-util</artifactId>
-            <version>5.5.23</version>
-            <type>jar</type>
-            <scope>compile</scope>
-        </dependency>
+		    <groupId>org.apache.tomcat</groupId>
+		    <artifactId>tomcat-util</artifactId>
+		    <version>7.0.75</version>
+		    <scope>compile</scope>
+		</dependency>
         <dependency>
 			<groupId>com.aws.elasticcache</groupId>
 			<artifactId>client</artifactId>
