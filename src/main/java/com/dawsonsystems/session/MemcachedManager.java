@@ -355,7 +355,7 @@ public class MemcachedManager implements Manager, Lifecycle {
 		try {
 			List<Session> sessions = new ArrayList<Session>();
 			for (String sessionId : keys()) {
-				sessions.add(loadSession(sessionId));
+				sessions.add(createEmptySession(sessionId));
 			}
 			return sessions.toArray(new Session[sessions.size()]);
 		} catch (IOException ex) {
@@ -472,7 +472,7 @@ public class MemcachedManager implements Manager, Lifecycle {
 			//getCurrentRequest().getResponse().addCookie(c);
 			//getCurrentRequest().getResponse().addSessionCookieInternal(c);
 			//getCurrentRequest().getResponse().setHeader("JSESSIONID", session.getId());
-			getCurrentRequest().getResponse().setHeader("Set-Cookie", "JSESSIONID=" +session.getId());
+			getCurrentRequest().getResponse().setHeader("Set-Cookie", "JSESSIONID=" +session.getId()+";Path=/;");
 			return session;
 		}
 
@@ -508,7 +508,7 @@ public class MemcachedManager implements Manager, Lifecycle {
 //			Cookie c = new Cookie("JSESSIONID", id);
 //			getCurrentRequest().getResponse().addCookie(c);
 //			getCurrentRequest().getResponse().addSessionCookieInternal(c);
-			getCurrentRequest().getResponse().setHeader("Set-Cookie", "JSESSIONID=" +string);
+			getCurrentRequest().getResponse().setHeader("Set-Cookie", "JSESSIONID=" +string+";Path=/;");
 			
 			return ret;
 		}
@@ -653,7 +653,12 @@ public class MemcachedManager implements Manager, Lifecycle {
 	private void initDbConnection() throws LifecycleException {
 		try {
 			ConnectionFactoryBuilder connectionFactoryBuilder = new ConnectionFactoryBuilder();
-			connectionFactoryBuilder.setClientMode(ClientMode.Static);
+			//connectionFactoryBuilder.setClientMode(ClientMode.Static);
+			if ("true".equals(System.getProperty("dev"))) {
+				connectionFactoryBuilder.setClientMode(ClientMode.Static);
+			} else {
+				connectionFactoryBuilder.setClientMode(ClientMode.Dynamic);
+			}
             memcachedClient = new MemcachedClient(
                     connectionFactoryBuilder.build(),
                     AddrUtil.getAddresses(getHost()+":"+getPort()));
