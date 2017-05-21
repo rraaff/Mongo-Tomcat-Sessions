@@ -296,7 +296,8 @@ public class MemcachedManager implements Manager, Lifecycle {
 		session.setCreationTime(System.currentTimeMillis());
 		session.setNew(true);
 		setCurrentSessionThreadLocal(session);
-		getCurrentRequest().getRequest().setRequestedSessionId(sessionId);
+		// TOQUE 25/04
+//		getCurrentRequest().getRequest().setRequestedSessionId(sessionId);
 		if (log.isLoggable(Level.FINE)) {
 			log.fine("Created new empty session " + session.getIdInternal());
 		}
@@ -377,7 +378,9 @@ public class MemcachedManager implements Manager, Lifecycle {
 		}
 		String string = UUID.randomUUID().toString();
 		//currentResponse.get().setHeader("JSESSIONID", string);
-		currentRequest.get().getResponse().addCookie(new Cookie("JSESSIONID", string));
+		Cookie cookie = new Cookie("JSESSIONID", string);
+		cookie.setPath("/");
+		currentRequest.get().getResponse().addCookie(cookie);
 		return (StandardSession) createEmptySession(string);
 	}
 
@@ -500,7 +503,7 @@ public class MemcachedManager implements Manager, Lifecycle {
 
 	public StandardSession loadFromDb(String id, StandardSession session)
 			throws IOException, ClassNotFoundException {
-		if (getCurrentRequest().getInvalidatedSessionCookies().contains(id)) {
+		if (getCurrentRequest() != null && getCurrentRequest().getInvalidatedSessionCookies().contains(id)) {
 			StandardSession ret = getNewSession();
 			String string = UUID.randomUUID().toString();
 			ret.setId(string);
