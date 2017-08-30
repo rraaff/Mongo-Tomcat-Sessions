@@ -6,7 +6,7 @@
 
     <groupId>com.dawsonsystems</groupId>
     <artifactId>mongo-store-proxy</artifactId>
-    <version>1.6</version>
+    <version>1.7.3</version>
     <licenses>
         <license>
             <name>Apache 2</name>
@@ -109,8 +109,8 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>2.3.2</version>
                 <configuration>
-                    <source>1.6</source>
-                    <target>1.6</target>
+                    <source>1.8</source>
+                    <target>1.8</target>
                 </configuration>
             </plugin>
             <plugin>
@@ -183,7 +183,7 @@
     <properties>
         <gmaven.version>1.2</gmaven.version>
         <groovy.version>1.7.0</groovy.version>
-        <mongo-java-driver.version>2.4</mongo-java-driver.version>
+        <mongo-java-driver.version>3.2.1</mongo-java-driver.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 </project>

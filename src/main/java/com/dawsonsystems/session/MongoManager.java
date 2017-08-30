@@ -45,7 +45,8 @@ import com.mongodb.DB;
 import com.mongodb.DBCollection;
 import com.mongodb.DBCursor;
 import com.mongodb.DBObject;
-import com.mongodb.Mongo;
+import com.mongodb.MongoClient;
+import com.mongodb.MongoCredential;
 import com.mongodb.ServerAddress;
 import com.mongodb.WriteResult;
 
@@ -55,7 +56,15 @@ public class MongoManager implements Manager, Lifecycle {
 	protected static String suffix = "";
 	protected static int port = 27017;
 	protected static String database = "sessions";
-	protected Mongo mongo;
+	
+	/* Absolute Path containing properties for mongo username and password*/
+	private static String credentialFilePath = "";
+	/* username key for the credentiales file poperties */
+	private static String userNameKey = "";
+	/* password key for the credentiales file poperties */
+	private static String passwordKey = "";
+	
+	protected MongoClient mongo;
 	protected DB db;
 	protected boolean slaveOk;
 	
@@ -65,10 +74,10 @@ public class MongoManager implements Manager, Lifecycle {
 
 	private MongoSessionTrackerValve trackerValve;
 	
-	private ThreadLocal<String> currentPath = new ThreadLocal<String>();
+	private ThreadLocal<String> currentPath = new ThreadLocal<>();
 	
-	private ThreadLocal<String> currentSessionPath = new ThreadLocal<String>();
-	private ThreadLocal<StandardSession> currentSession = new ThreadLocal<StandardSession>();
+	private ThreadLocal<String> currentSessionPath = new ThreadLocal<>();
+	private ThreadLocal<StandardSession> currentSession = new ThreadLocal<>();
 	private Serializer serializer;
 
 	// Either 'kryo' or 'java'
@@ -76,7 +85,7 @@ public class MongoManager implements Manager, Lifecycle {
 
 	private Container container;
 	private int maxInactiveInterval;
-	
+
 	protected void setCurrentPath(String path) {
 		currentPath.set(path);
 	}
@@ -126,7 +135,7 @@ public class MongoManager implements Manager, Lifecycle {
 
 	@Override
 	public void setDistributable(boolean b) {
-
+		// nothing to do
 	}
 
 	@Override
@@ -151,7 +160,7 @@ public class MongoManager implements Manager, Lifecycle {
 
 	@Override
 	public void setSessionIdLength(int i) {
-
+		// nothing to do
 	}
 
 
@@ -162,7 +171,7 @@ public class MongoManager implements Manager, Lifecycle {
 
 	@Override
 	public void setMaxActive(int i) {
-
+		// nothing to do
 	}
 
 	@Override
@@ -189,6 +198,7 @@ public class MongoManager implements Manager, Lifecycle {
 	}
 
 	public void setRejectedSessions(int i) {
+		// nothing to do
 	}
 
 	@Override
@@ -198,7 +208,7 @@ public class MongoManager implements Manager, Lifecycle {
 
 	@Override
 	public void setSessionMaxAliveTime(int i) {
-
+		// nothing to do
 	}
 
 	@Override
@@ -208,10 +218,12 @@ public class MongoManager implements Manager, Lifecycle {
 
 	@Override
 	public void load() throws ClassNotFoundException, IOException {
+		// nothing to do
 	}
 
 	@Override
 	public void unload() throws IOException {
+		// nothing to do
 	}
 
 	@Override
@@ -232,6 +244,7 @@ public class MongoManager implements Manager, Lifecycle {
 
 	@Override
 	public void removeLifecycleListener(LifecycleListener lifecycleListener) {
+		// nothing to do
 	}
 
 	@Override
@@ -330,13 +343,7 @@ public class MongoManager implements Manager, Lifecycle {
 		}
 		try {
 			initSerializer();
-		} catch (ClassNotFoundException e) {
-			log.log(Level.SEVERE, "Unable to load serializer", e);
-			throw new LifecycleException(e);
-		} catch (InstantiationException e) {
-			log.log(Level.SEVERE, "Unable to load serializer", e);
-			throw new LifecycleException(e);
-		} catch (IllegalAccessException e) {
+		} catch (ClassNotFoundException | IllegalAccessException | InstantiationException e) {
 			log.log(Level.SEVERE, "Unable to load serializer", e);
 			throw new LifecycleException(e);
 		}
@@ -384,8 +391,7 @@ public class MongoManager implements Manager, Lifecycle {
 	}
 
 	public void clear() throws IOException {
-		getCollection().drop();
-		getCollection().ensureIndex(new BasicDBObject("lastmodified", 1));
+		//getCollection().drop();
 	}
 
 	private DBCollection getCollection() throws IOException {
@@ -403,7 +409,7 @@ public class MongoManager implements Manager, Lifecycle {
 
 		DBCursor cursor = getCollection().find(new BasicDBObject(), restrict);
 
-		List<String> ret = new ArrayList<String>();
+		List<String> ret = new ArrayList<>();
 
 		while (cursor.hasNext()) {
 			ret.add(cursor.next().get("").toString());
@@ -534,7 +540,6 @@ public class MongoManager implements Manager, Lifecycle {
 			log.fine("Updated session with id " + session.getIdInternal());
 		} catch (IOException e) {
 			log.severe(e.getMessage());
-			e.printStackTrace();
 			throw e;
 		} finally {
 			currentSession.remove();
@@ -604,26 +609,38 @@ public class MongoManager implements Manager, Lifecycle {
 		try {
 			String[] hosts = getHost().split(",");
 
-			List<ServerAddress> addrs = new ArrayList<ServerAddress>();
+			List<ServerAddress> addrs = new ArrayList<>();
 
 			for (String host : hosts) {
 				addrs.add(new ServerAddress(host, getPort()));
 			}
-			mongo = new Mongo(addrs);
+			
+			List<MongoCredential> credentials = new ArrayList<>();
+	
+			if (hasCredentialFilePath()) {
+				SensitiveConf sensitiveConf = SensitiveConf.load(getCredentialFilePath());
+				credentials.add(MongoCredential.createCredential(sensitiveConf.getProperty(getUserNameKey()), getDatabase(), sensitiveConf.getProperty(getPasswordKey()).toCharArray()));
+			} 
+			mongo = new MongoClient(addrs,credentials);
 			db = mongo.getDB(getDatabase());
 			if (slaveOk) {
 				db.slaveOk();
 			}
-			getCollection().ensureIndex(new BasicDBObject("lastmodified", 1));
 			if (log.isLoggable(Level.FINE)) {
 				log.info("Connected to Mongo " + host + "/" + database
 					+ " for session storage, slaveOk=" + slaveOk + ", "
 					+ (getMaxInactiveInterval() * 1000) + " session live time");
 			}
 		} catch (IOException e) {
-			e.printStackTrace();
 			throw new LifecycleException("Error Connecting to Mongo", e);
 		}
+	}
+
+	private static boolean hasCredentialFilePath() {
+		if (getCredentialFilePath() == null) {
+			return false;
+		}
+		return getCredentialFilePath().trim().length() > 0;
 	}
 
 	private void initSerializer() throws ClassNotFoundException,
@@ -656,10 +673,14 @@ public class MongoManager implements Manager, Lifecycle {
 	}
 
 	@Override
-	public void init() throws LifecycleException {}
+	public void init() throws LifecycleException {
+		// nothing to do
+	}
 
 	@Override
-	public void destroy() throws LifecycleException {}
+	public void destroy() throws LifecycleException {
+		// nothing to do
+	}
 
 	@Override
 	public LifecycleState getState() {
@@ -678,6 +699,7 @@ public class MongoManager implements Manager, Lifecycle {
 
 	@Override
 	public void setSessionCounter(long sessionCounter) {
+		// nothing to do
 	}
 
 	@Override
@@ -687,6 +709,7 @@ public class MongoManager implements Manager, Lifecycle {
 
 	@Override
 	public void setExpiredSessions(long expiredSessions) {
+		// nothing to do
 	}
 
 	@Override
@@ -710,4 +733,29 @@ public class MongoManager implements Manager, Lifecycle {
 	public boolean willAttributeDistribute(String arg0, Object arg1) {
 		return true;
 	}
+	
+	public static String getPasswordKey() {
+		return passwordKey;
+	}
+
+	public static void setPasswordKey(String passwordKey) {
+		MongoManager.passwordKey = passwordKey;
+	}
+
+	public static String getUserNameKey() {
+		return userNameKey;
+	}
+
+	public static void setUserNameKey(String userNameKey) {
+		MongoManager.userNameKey = userNameKey;
+	}
+
+	public static String getCredentialFilePath() {
+		return credentialFilePath;
+	}
+
+	public static void setCredentialFilePath(String credentialFilePath) {
+		MongoManager.credentialFilePath = credentialFilePath;
+	}
+	
 }
