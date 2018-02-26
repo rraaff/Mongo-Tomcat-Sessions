@@ -428,6 +428,9 @@ public class MemcachedManager implements Manager, Lifecycle {
 	}
 
 	public static String getHost() {
+		if (host == null || host.trim().length() == 0) {
+			host = System.getProperty("memcachedManagerHost");
+		}
 		return host;
 	}
 
@@ -667,7 +670,7 @@ public class MemcachedManager implements Manager, Lifecycle {
                     AddrUtil.getAddresses(getHost()+":"+getPort()));
 			
 			if (log.isLoggable(Level.FINE)) {
-				log.info("Connected to memcached " + host + "/"
+				log.info("Connected to memcached " + getHost() + "/"
 					+ " for session storage "
 					+ (getMaxInactiveInterval()) + " session live time");
 			}
